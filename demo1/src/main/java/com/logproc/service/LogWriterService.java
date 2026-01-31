@@ -3,6 +3,7 @@ package com.logproc.service;
 import com.logproc.model.LogEntry;
 import org.springframework.stereotype.Service;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +14,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class LogWriterService {
 
     private final BlockingQueue<LogEntry> outputQueue;
-    // 🛑 GUARD: Prevents the "Ghost Writer" from wiping your file
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     public LogWriterService(BlockingQueue<LogEntry> outputQueue) {
@@ -21,15 +21,15 @@ public class LogWriterService {
     }
 
     public void startWriting() {
-        // 1. CHECK GUARD
         if (isRunning.getAndSet(true)) {
-            System.err.println("⚠️ WARNING: LogWriterService tried to start twice! Ignoring request.");
             return;
         }
 
-        System.out.println("💾 WRITER THREAD STARTED...");
+        // 1. LOCK THE FILE PATH
+        File outputFile = new File("processed_logs.txt");
+        System.out.println("💾 WRITER STARTED. Saving to ABSOLUTE PATH: " + outputFile.getAbsolutePath());
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter("processed_logs.txt", false))) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile, false))) {
             List<LogEntry> buffer = new ArrayList<>(500);
 
             while (true) {
@@ -41,7 +41,7 @@ public class LogWriterService {
                         writer.write(formatLog(entry));
                     }
                     writer.flush();
-                    System.out.println("✅ WRITER FINISHED. File closed.");
+                    System.out.println("✅ WRITER FINISHED.");
                     break;
                 }
 
@@ -51,17 +51,28 @@ public class LogWriterService {
                 for (LogEntry entry : buffer) {
                     writer.write(formatLog(entry));
                 }
-                writer.flush(); // Flush regularly so you can see results in real-time
+                writer.flush();
                 buffer.clear();
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        // 2. PROOF OF LIFE CHECK (Run this AFTER file is closed)
+        if (outputFile.exists()) {
+            System.out.println("🔎 VERIFICATION: File exists at " + outputFile.getAbsolutePath());
+            System.out.println("📏 FINAL SIZE: " + outputFile.length() + " bytes (Should be > 0)");
+            System.out.println("📄 LINE COUNT CHECK: " + (outputFile.length() > 0 ? "SUCCESS" : "FAILURE"));
+        } else {
+            System.err.println("❌ ERROR: File was NOT created!");
+        }
     }
 
     private String formatLog(LogEntry entry) {
-        return "[" + entry.getTimestamp() + "] [Thread: " +
-                (entry.getProcessedBy() != null ? entry.getProcessedBy() : "Unknown") +
-                "] " + entry.getLevel() + ": " + entry.getMessage() + "\n";
+        return String.format("[%s] [Thread: %s] %s: %s%n",
+                entry.getTimestamp(),
+                entry.getProcessedBy() != null ? entry.getProcessedBy() : "Unknown",
+                entry.getLevel(),
+                entry.getMessage());
     }
 }

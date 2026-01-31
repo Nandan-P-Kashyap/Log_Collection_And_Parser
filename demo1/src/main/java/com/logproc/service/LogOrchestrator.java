@@ -28,37 +28,30 @@ public class LogOrchestrator implements CommandLineRunner {
     public void run(String... args) throws Exception {
         System.out.println("🚀 STARTING VORTEX ENGINE (DEDICATED THREAD MODE)...");
 
-        // 0. SAFETY CHECK: Does the file exist?
         File f = new File("logs.jsonl");
         if (!f.exists()) {
-            System.err.println("❌ CRITICAL ERROR: 'logs.jsonl' NOT FOUND in: " + f.getAbsolutePath());
-            System.exit(1); // Stop immediately if file is missing
+            System.err.println("❌ CRITICAL ERROR: 'logs.jsonl' NOT FOUND at: " + f.getAbsolutePath());
+            System.exit(1);
         }
-        System.out.println("📂 File found: " + f.getAbsolutePath());
 
-        // We use a Latch to keep the main thread alive until the Writer finishes
         CountDownLatch shutdownLatch = new CountDownLatch(1);
 
-        // 1. START WRITER (Dedicated Thread)
+        // 1. START WRITER
         Thread writerThread = new Thread(() -> {
             writerService.startWriting();
-            shutdownLatch.countDown(); // Unblock main thread when Writer finishes
+            shutdownLatch.countDown(); // Signal when done
         }, "Orchestrator-Writer");
         writerThread.start();
-        Thread.sleep(500); // Wait 500ms to ensure Writer is ready
+        Thread.sleep(500);
 
-        // 2. START CONSUMER (Dedicated Thread)
+        // 2. START CONSUMER
         Thread consumerThread = new Thread(() -> {
             try {
                 System.out.println("⚙️ WORKER DISTRIBUTION STARTED...");
                 while (true) {
                     String line = inputQueue.take();
-                    workerService.processLine(line); // Pass to Async Worker
-
-                    if (LogReaderService.EOF.equals(line)) {
-                        System.out.println("🛑 ORCHESTRATOR: EOF received. Stopping distribution.");
-                        break;
-                    }
+                    workerService.processLine(line);
+                    if (LogReaderService.EOF.equals(line)) break;
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -66,17 +59,19 @@ public class LogOrchestrator implements CommandLineRunner {
         }, "Orchestrator-Consumer");
         consumerThread.start();
 
-        // 3. START READER (Dedicated Thread)
+        // 3. START READER
         Thread readerThread = new Thread(() -> {
             System.out.println("📖 READER STARTED...");
             readerService.readLogFile("logs.jsonl");
         }, "Orchestrator-Reader");
         readerThread.start();
 
-        // 4. KEEP ALIVE
-        // This prevents the application from exiting immediately.
-        // It waits here until the Writer thread signals it is done.
+        // 4. WAIT FOR COMPLETION
         shutdownLatch.await();
-        System.out.println("🏁 ENGINE SHUTDOWN COMPLETE.");
+        System.out.println("🏁 ENGINE SHUTDOWN COMPLETE. FORCING EXIT.");
+
+        // 🛑 THE NUCLEAR FIX 🛑
+        // Kill the JVM immediately so nothing else can run/delete the file.
+        System.exit(0);
     }
 }
