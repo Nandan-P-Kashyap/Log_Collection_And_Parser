@@ -6,6 +6,6 @@ public interface LogParser {
     // Identifies if the parser can handle the specific format
     boolean canHandle(String rawLine);
 
-    // The actual "Middle Task" logic using our index scanning
-    LogEntry parse(String rawLine);
+    // ⚠️ UPDATE: Now accepts threadName to maintain immutability & performance
+    LogEntry parse(String rawLine, String threadName);
 }

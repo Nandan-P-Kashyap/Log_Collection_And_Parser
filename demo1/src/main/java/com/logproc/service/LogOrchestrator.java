@@ -39,7 +39,7 @@ public class LogOrchestrator implements CommandLineRunner {
         // 1. START WRITER
         Thread writerThread = new Thread(() -> {
             writerService.startWriting();
-            shutdownLatch.countDown(); // Signal when done
+            shutdownLatch.countDown();
         }, "Orchestrator-Writer");
         writerThread.start();
         Thread.sleep(500);
@@ -50,8 +50,19 @@ public class LogOrchestrator implements CommandLineRunner {
                 System.out.println("⚙️ WORKER DISTRIBUTION STARTED...");
                 while (true) {
                     String line = inputQueue.take();
-                    workerService.processLine(line);
-                    if (LogReaderService.EOF.equals(line)) break;
+
+                    // 🛑 SAFETY NET: Catch errors here so the consumer doesn't die!
+                    try {
+                        workerService.processLine(line);
+                    } catch (Throwable t) {
+                        System.err.println("❌ CRITICAL WORKER ERROR: " + t.getMessage());
+                        t.printStackTrace();
+                    }
+
+                    if (LogReaderService.EOF.equals(line)) {
+                        System.out.println("🛑 ORCHESTRATOR: EOF received. Stopping distribution.");
+                        break;
+                    }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -69,9 +80,6 @@ public class LogOrchestrator implements CommandLineRunner {
         // 4. WAIT FOR COMPLETION
         shutdownLatch.await();
         System.out.println("🏁 ENGINE SHUTDOWN COMPLETE. FORCING EXIT.");
-
-        // 🛑 THE NUCLEAR FIX 🛑
-        // Kill the JVM immediately so nothing else can run/delete the file.
         System.exit(0);
     }
 }

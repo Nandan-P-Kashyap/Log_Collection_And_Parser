@@ -13,7 +13,7 @@ public class JsonParser implements LogParser {
     }
 
     @Override
-    public LogEntry parse(String rawLine) {
+    public LogEntry parse(String rawLine, String threadName) {
         LogEntry.Builder builder = LogEntry.builder();
 
         // Use the helper to extract each field accurately
@@ -21,9 +21,12 @@ public class JsonParser implements LogParser {
         builder.message(extractValue(rawLine, "\"msg\":\""));
         builder.timestamp(extractValue(rawLine, "\"timestamp\":\""));
 
+        // 🛑 NEW: Set the thread name here
+        builder.processedBy(threadName);
+
         return builder.build();
     }
-    // ADD THIS BLOCK SPECIFICALLY BELOW THE PARSE METHOD
+
     private String extractValue(String raw, String key) {
         int k = raw.indexOf(key);
         if (k == -1) return null;
@@ -38,16 +41,11 @@ public class JsonParser implements LogParser {
             if (endValue == -1) break;
 
             // Check if the quote is escaped: \"
-            // We use raw.charAt(endValue - 1) to look back at the previous character
             if (endValue > 0 && raw.charAt(endValue - 1) != '\\') {
                 return raw.substring(startValue, endValue);
             }
-
-            // If it was escaped, skip it and keep searching
             endValue++;
         }
         return null;
     }
-
-
 }

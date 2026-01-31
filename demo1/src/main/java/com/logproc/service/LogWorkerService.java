@@ -27,26 +27,33 @@ public class LogWorkerService {
     @Async("workerExecutor")
     public void processLine(String rawLine) {
         try {
-            // 🛑 FIX: Check for EOF before parsing!
+            // 1. Check for EOF before parsing
             if (rawLine.equals(LogReaderService.EOF)) {
-                // Create a special "Poison Pill" entry to warn the Writer
                 LogEntry eofEntry = LogEntry.builder()
-                        .message(LogReaderService.EOF) // "EOF_SIGNAL"
+                        .message(LogReaderService.EOF)
                         .timestamp("END")
                         .level("INFO")
+                        // Optional: you can even stamp the EOF with the thread name
+                        .processedBy(Thread.currentThread().getName())
                         .build();
                 outputQueue.put(eofEntry);
-                return; // Stop processing this line
+                return;
             }
 
-            // Normal processing for real log lines...
+            // 2. Normal processing: Get the specific Parser Strategy
             LogParser parser = parserFactory.getParser(rawLine);
-            LogEntry entry = parser.parse(rawLine);
+
+            // 🛑 THE FIX: Capture the current thread name and pass it as the 2nd argument
+            // This ensures k is an index at the modified string/object properly
+            String currentThreadName = Thread.currentThread().getName();
+            LogEntry entry = parser.parse(rawLine, currentThreadName);
+
             outputQueue.put(entry);
 
             metrics.incrementProcessed();
         } catch (Exception e) {
             System.err.println("WORKER FAILED: " + e.getMessage());
+            e.printStackTrace(); // Added for better debugging
             metrics.incrementError();
         }
     }
