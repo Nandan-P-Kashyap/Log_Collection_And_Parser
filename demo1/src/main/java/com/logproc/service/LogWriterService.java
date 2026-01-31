@@ -1,11 +1,7 @@
 package com.logproc.service;
 
 import com.logproc.model.LogEntry;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.util.ArrayList;
@@ -16,67 +12,52 @@ import java.util.concurrent.BlockingQueue;
 public class LogWriterService {
 
     private final BlockingQueue<LogEntry> outputQueue;
-    public static final String EOF = "EOF_SIGNAL"; // Match this to your Producer's EOF if you pass it through
 
     public LogWriterService(BlockingQueue<LogEntry> outputQueue) {
         this.outputQueue = outputQueue;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    @Async
+    // REMOVED @Async and @EventListener
     public void startWriting() {
-        // 'false' in FileWriter constructor overwrites the file each run (cleaner for testing)
-        // Change to 'true' if you want to append.
+        System.out.println("💾 WRITER THREAD STARTED..."); // Debug Print
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("processed_logs.txt", false))) {
-
-            List<LogEntry> buffer = new ArrayList<>(500); // Temporary batch buffer
+            List<LogEntry> buffer = new ArrayList<>(500);
 
             while (true) {
-                // 1. Get the first item (Blocks if empty)
                 LogEntry first = outputQueue.take();
 
-                // 2. Poison Pill Check (Optional: If you propagate EOF)
-                // if (first.getMessage().equals(EOF)) break;
-
-                // 🛑 FIX: Listen for the Poison Pill
+                // Poison Pill Check
                 if (LogReaderService.EOF.equals(first.getMessage())) {
-                    System.out.println("WRITER RECEIVED EOF: Flushing remaining buffer...");
-
-                    // Write whatever is currently in the buffer before quitting
+                    System.out.println("📝 WRITER RECEIVED EOF. Flushing buffer...");
                     for (LogEntry entry : buffer) {
-                        writer.write(entry.toString() + "\n");
+                        writer.write(formatLog(entry));
                     }
-                    writer.flush(); // Force the final write
-                    break; // Exit the loop and close the file
+                    writer.flush(); // Force final write
+                    System.out.println("✅ WRITER FINISHED. File closed.");
+                    break;
                 }
-                
-                buffer.add(first);
 
-                // 3. DRAIN the rest! (The Magic Line)
-                // Grab up to 499 MORE items instantly without waiting
+                buffer.add(first);
                 outputQueue.drainTo(buffer, 499);
 
-                // 4. Write the whole batch at once
                 for (LogEntry entry : buffer) {
-                    // Manual string concatenation is faster than String.format for loops
-                    writer.write("[");
-                    writer.write(entry.getTimestamp());
-                    writer.write("] [Thread: ");
-                    writer.write(entry.getProcessedBy() != null ? entry.getProcessedBy() : "Unknown");
-                    writer.write("] ");
-                    writer.write(entry.getLevel());
-                    writer.write(": ");
-                    writer.write(entry.getMessage());
-                    writer.newLine();
+                    writer.write(formatLog(entry));
                 }
 
-                // 5. Clear buffer for next batch
-                buffer.clear();
+                // TEMP FIX: Flush every batch so you can SEE the file growing
+                writer.flush();
 
-                // DO NOT FLUSH HERE! Let BufferedWriter decide when to flush (usually 8kb).
+                buffer.clear();
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // Helper method to keep code clean
+    private String formatLog(LogEntry entry) {
+        return "[" + entry.getTimestamp() + "] [Thread: " +
+                (entry.getProcessedBy() != null ? entry.getProcessedBy() : "Unknown") +
+                "] " + entry.getLevel() + ": " + entry.getMessage() + "\n";
     }
 }

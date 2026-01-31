@@ -1,39 +1,56 @@
 package com.logproc.service;
 
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
-
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 
-@Service
-public class LogOrchestrator {
+@Component
+public class LogOrchestrator implements CommandLineRunner {
 
-    private final BlockingQueue<String> inputQueue;
+    private final LogReaderService readerService;
     private final LogWorkerService workerService;
+    private final LogWriterService writerService; // Inject Writer
+    private final BlockingQueue<String> inputQueue;
 
-    public LogOrchestrator(BlockingQueue<String> inputQueue, LogWorkerService workerService) {
-        this.inputQueue = inputQueue;
+    public LogOrchestrator(LogReaderService readerService,
+                           LogWorkerService workerService,
+                           LogWriterService writerService,
+                           BlockingQueue<String> inputQueue) {
+        this.readerService = readerService;
         this.workerService = workerService;
+        this.writerService = writerService;
+        this.inputQueue = inputQueue;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    @Async
-    public void startEngine() {
-        try {
-            while (true) {
-                String rawLine = inputQueue.take();
-                //System.out.println("!!! ENGINE HEARTBEAT: Took line from InputQueue !!!");
+    @Override
+    public void run(String... args) {
+        System.out.println("🚀 STARTING VORTEX ENGINE...");
 
-                if (LogReaderService.EOF.equals(rawLine)) {
-                    //System.out.println("!!! ENGINE: Received EOF !!!");
-                    break;
+        // 1. START WRITER (The Sink) - Must start first!
+        CompletableFuture.runAsync(() -> writerService.startWriting());
+
+        // 2. START CONSUMER (The Bridge)
+        CompletableFuture.runAsync(() -> {
+            try {
+                System.out.println("⚙️ WORKER DISTRIBUTION STARTED...");
+                while (true) {
+                    String line = inputQueue.take();
+                    workerService.processLine(line); // Async call to worker
+
+                    if (LogReaderService.EOF.equals(line)) {
+                        break; // Stop distributing
+                    }
                 }
-                workerService.processLine(rawLine);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        });
+
+        // 3. START READER (The Source) - Starts last
+        CompletableFuture.runAsync(() -> {
+            // DOUBLE CHECK: Ensure "logs.jsonl" is in your project root
+            readerService.readLogFile("logs.jsonl");
+        });
     }
 }
