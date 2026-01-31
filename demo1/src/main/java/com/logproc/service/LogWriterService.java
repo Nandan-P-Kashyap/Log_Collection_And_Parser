@@ -38,6 +38,18 @@ public class LogWriterService {
                 // 2. Poison Pill Check (Optional: If you propagate EOF)
                 // if (first.getMessage().equals(EOF)) break;
 
+                // 🛑 FIX: Listen for the Poison Pill
+                if (LogReaderService.EOF.equals(first.getMessage())) {
+                    System.out.println("WRITER RECEIVED EOF: Flushing remaining buffer...");
+
+                    // Write whatever is currently in the buffer before quitting
+                    for (LogEntry entry : buffer) {
+                        writer.write(entry.toString() + "\n");
+                    }
+                    writer.flush(); // Force the final write
+                    break; // Exit the loop and close the file
+                }
+                
                 buffer.add(first);
 
                 // 3. DRAIN the rest! (The Magic Line)
