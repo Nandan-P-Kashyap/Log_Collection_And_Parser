@@ -52,4 +52,12 @@ public class LogEntry {
     }
 
     public static Builder builder() { return new Builder(); }
+
+    // A shared POISON_PILL instance used to signal shutdown between components
+    public static final LogEntry POISON_PILL = new Builder()
+            .message("__POISON_PILL__")
+            .timestamp("END")
+            .level("INFO")
+            .processedBy("POISON")
+            .build();
 }

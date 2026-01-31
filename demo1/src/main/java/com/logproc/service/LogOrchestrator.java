@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 
 @Component
 public class LogOrchestrator implements CommandLineRunner {
@@ -13,73 +14,71 @@ public class LogOrchestrator implements CommandLineRunner {
     private final LogWorkerService workerService;
     private final LogWriterService writerService;
     private final BlockingQueue<String> inputQueue;
+    private final Executor orchestratorExecutor;
 
     public LogOrchestrator(LogReaderService readerService,
                            LogWorkerService workerService,
                            LogWriterService writerService,
-                           BlockingQueue<String> inputQueue) {
+                           BlockingQueue<String> inputQueue,
+                           Executor orchestratorExecutor) {
         this.readerService = readerService;
         this.workerService = workerService;
         this.writerService = writerService;
         this.inputQueue = inputQueue;
+        this.orchestratorExecutor = orchestratorExecutor;
     }
 
     @Override
     public void run(String... args) throws Exception {
-        System.out.println("🚀 STARTING VORTEX ENGINE (DEDICATED THREAD MODE)...");
+        System.out.println("🚀 STARTING VORTEX ENGINE (MANAGED MODE)...");
 
         File f = new File("logs.jsonl");
         if (!f.exists()) {
-            System.err.println("❌ CRITICAL ERROR: 'logs.jsonl' NOT FOUND at: " + f.getAbsolutePath());
-            System.exit(1);
+            System.err.println("ERROR: logs.jsonl not found. Exiting orchestrator run().");
+            return;
         }
 
-        CountDownLatch shutdownLatch = new CountDownLatch(1);
+        // We use a latch to wait for the WRITER to finish its job
+        CountDownLatch writerLatch = new CountDownLatch(1);
 
-        // 1. START WRITER
-        Thread writerThread = new Thread(() -> {
-            writerService.startWriting();
-            shutdownLatch.countDown();
-        }, "Orchestrator-Writer");
-        writerThread.start();
-        Thread.sleep(500);
 
-        // 2. START CONSUMER
-        Thread consumerThread = new Thread(() -> {
+        // Submit the Writer using the Spring-managed orchestratorExecutor
+        orchestratorExecutor.execute(() -> {
+            try {
+                writerService.startWriting();
+            } finally {
+                writerLatch.countDown();
+            }
+        });
+
+        // Submit the Consumer (The Bridge)
+        orchestratorExecutor.execute(() -> {
             try {
                 System.out.println("⚙️ WORKER DISTRIBUTION STARTED...");
                 while (true) {
-                    String line = inputQueue.take();
+                    String line = inputQueue.take(); // Blocks until data is available
 
-                    // 🛑 SAFETY NET: Catch errors here so the consumer doesn't die!
                     try {
                         workerService.processLine(line);
-                    } catch (Throwable t) {
-                        System.err.println("❌ CRITICAL WORKER ERROR: " + t.getMessage());
-                        t.printStackTrace();
+                    } catch (Exception e) {
+                        System.err.println("WORKER ERROR: " + e.getMessage());
                     }
 
-                    if (LogReaderService.EOF.equals(line)) {
-                        System.out.println("🛑 ORCHESTRATOR: EOF received. Stopping distribution.");
-                        break;
-                    }
+                    if (LogReaderService.EOF.equals(line)) break;
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        }, "Orchestrator-Consumer");
-        consumerThread.start();
+        });
 
-        // 3. START READER
-        Thread readerThread = new Thread(() -> {
-            System.out.println("📖 READER STARTED...");
-            readerService.readLogFile("logs.jsonl");
-        }, "Orchestrator-Reader");
-        readerThread.start();
+        // Submit the Reader
+        orchestratorExecutor.execute(() -> readerService.readLogFile("logs.jsonl"));
 
-        // 4. WAIT FOR COMPLETION
-        shutdownLatch.await();
-        System.out.println("🏁 ENGINE SHUTDOWN COMPLETE. FORCING EXIT.");
-        System.exit(0);
+        // 4. Graceful Wait
+        writerLatch.await();
+
+        System.out.println("🏁 ENGINE SHUTDOWN COMPLETE.");
+
+        // Normal return to allow Spring to manage application lifecycle and threads
     }
 }

@@ -39,4 +39,17 @@ public class AppConfig {
         executor.initialize();
         return executor;
     }
+
+    // A small executor for orchestrator tasks (reader/bridge/writer runners)
+    @Bean(name = "orchestratorExecutor")
+    public Executor orchestratorExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(3);
+        executor.setMaxPoolSize(3);
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("Orchestrator-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }

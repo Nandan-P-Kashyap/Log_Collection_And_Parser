@@ -29,14 +29,8 @@ public class LogWorkerService {
         try {
             // 1. Check for EOF before parsing
             if (rawLine.equals(LogReaderService.EOF)) {
-                LogEntry eofEntry = LogEntry.builder()
-                        .message(LogReaderService.EOF)
-                        .timestamp("END")
-                        .level("INFO")
-                        // Optional: you can even stamp the EOF with the thread name
-                        .processedBy(Thread.currentThread().getName())
-                        .build();
-                outputQueue.put(eofEntry);
+                // Place the shared POISON_PILL onto the output queue to signal writer shutdown
+                outputQueue.put(LogEntry.POISON_PILL);
                 return;
             }
 

@@ -35,8 +35,8 @@ public class LogWriterService {
             while (true) {
                 LogEntry first = outputQueue.take();
 
-                if (LogReaderService.EOF.equals(first.getMessage())) {
-                    System.out.println("📝 WRITER RECEIVED EOF. Flushing buffer...");
+                if (first == LogEntry.POISON_PILL) {
+                    System.out.println("📝 WRITER RECEIVED POISON_PILL. Flushing buffer...");
                     for (LogEntry entry : buffer) {
                         writer.write(formatLog(entry));
                     }
