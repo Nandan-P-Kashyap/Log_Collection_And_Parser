@@ -1,0 +1,3 @@
+{"level":"INFO","msg":"User login success","timestamp":"2026-01-25T10:00:01Z"}
+{"level":"ERROR","msg":"Database connection failed","timestamp":"2026-01-25T10:00:05Z"}
+{"level":"DEBUG","msg":"Payload: {\"userId\": 101, \"action\": \"query\"}","timestamp":"2026-01-25T10:00:10Z"}
