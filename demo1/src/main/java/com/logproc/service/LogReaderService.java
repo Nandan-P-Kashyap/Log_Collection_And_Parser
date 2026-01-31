@@ -25,12 +25,11 @@ public class LogReaderService {
             while ((c = reader.read()) != -1) {
                 char ch = (char) c;
                 if (ch == '{') balance++;
+
                 if (balance > 0) {
                     logBuffer.append(ch);
 
-                    // --- ADD THIS GUARD HERE ---
-                    // If a single line exceeds 1MB, it means the JSON is malformed
-                    // (missing a closing brace). We stop it here before it eats all your RAM.
+                    // Guard for Malformed JSON (Already correct)
                     if (logBuffer.length() > 1024 * 1024) {
                         System.err.println("CRITICAL: Malformed JSON detected near line " + count + ". Buffer exceeded 1MB. Skipping...");
                         logBuffer.setLength(0);
@@ -38,15 +37,24 @@ public class LogReaderService {
                         continue;
                     }
                 }
+
                 if (ch == '}') balance--;
 
                 if (balance == 0 && logBuffer.length() > 0) {
                     String line = logBuffer.toString().trim();
 
-                    // --- EDITION MADE HERE: Non-blocking backpressure ---
-                    // Instead of forcing it in, we try to "offer" it to the queue.
-                    // If the queue is full, we wait 1ms and try again.
-                    // This prevents the Reader from flooding the JVM memory.
+                    // 🛑 NEW OPTIMIZATION: High-Water Mark Throttling 🛑
+                    // Before we even try to add to the queue, check if it's too full.
+                    // This forces the Reader to pause proactively, preventing the Memory Wall.
+                    while (inputQueue.size() > 500) {
+                        try {
+                            Thread.sleep(2); // Sleep longer (2ms) to let Workers breathe
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+
+                    // Standard Backpressure (Existing logic)
                     while (!inputQueue.offer(line)) {
                         try {
                             Thread.sleep(1);
@@ -54,11 +62,9 @@ public class LogReaderService {
                             Thread.currentThread().interrupt();
                         }
                     }
-                    // ----------------------------------------------------
 
                     count++;
 
-                    // Log progress every 500 lines so you can see it moving in the console
                     if (count % 500 == 0) {
                         System.out.println("!!! PRODUCER PROGRESS: " + count + " lines processed !!!");
                     }
@@ -66,7 +72,6 @@ public class LogReaderService {
                     logBuffer.setLength(0);
                 }
             }
-            //System.out.println("!!! READER HEARTBEAT: Sent " + count + " lines to InputQueue !!!");
             inputQueue.put(EOF);
         } catch (Exception e) {
             System.err.println("READER ERROR: " + e.getMessage());
