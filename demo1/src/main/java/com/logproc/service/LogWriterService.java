@@ -7,32 +7,40 @@ import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class LogWriterService {
 
     private final BlockingQueue<LogEntry> outputQueue;
+    // 🛑 GUARD: Prevents the "Ghost Writer" from wiping your file
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     public LogWriterService(BlockingQueue<LogEntry> outputQueue) {
         this.outputQueue = outputQueue;
     }
 
-    // REMOVED @Async and @EventListener
     public void startWriting() {
-        System.out.println("💾 WRITER THREAD STARTED..."); // Debug Print
+        // 1. CHECK GUARD
+        if (isRunning.getAndSet(true)) {
+            System.err.println("⚠️ WARNING: LogWriterService tried to start twice! Ignoring request.");
+            return;
+        }
+
+        System.out.println("💾 WRITER THREAD STARTED...");
+
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("processed_logs.txt", false))) {
             List<LogEntry> buffer = new ArrayList<>(500);
 
             while (true) {
                 LogEntry first = outputQueue.take();
 
-                // Poison Pill Check
                 if (LogReaderService.EOF.equals(first.getMessage())) {
                     System.out.println("📝 WRITER RECEIVED EOF. Flushing buffer...");
                     for (LogEntry entry : buffer) {
                         writer.write(formatLog(entry));
                     }
-                    writer.flush(); // Force final write
+                    writer.flush();
                     System.out.println("✅ WRITER FINISHED. File closed.");
                     break;
                 }
@@ -43,10 +51,7 @@ public class LogWriterService {
                 for (LogEntry entry : buffer) {
                     writer.write(formatLog(entry));
                 }
-
-                // TEMP FIX: Flush every batch so you can SEE the file growing
-                writer.flush();
-
+                writer.flush(); // Flush regularly so you can see results in real-time
                 buffer.clear();
             }
         } catch (Exception e) {
@@ -54,7 +59,6 @@ public class LogWriterService {
         }
     }
 
-    // Helper method to keep code clean
     private String formatLog(LogEntry entry) {
         return "[" + entry.getTimestamp() + "] [Thread: " +
                 (entry.getProcessedBy() != null ? entry.getProcessedBy() : "Unknown") +
