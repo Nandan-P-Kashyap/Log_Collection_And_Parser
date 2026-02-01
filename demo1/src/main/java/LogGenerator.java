@@ -20,6 +20,6 @@ public class LogGenerator {
                 writer.newLine();
             }
         }
-        System.out.println("Generated logs.jsonl successfully.");
+        org.slf4j.LoggerFactory.getLogger(LogGenerator.class).info("Generated logs.jsonl successfully.");
     }
 }

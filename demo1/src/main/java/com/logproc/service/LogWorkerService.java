@@ -4,6 +4,8 @@ import com.logproc.factory.ParserFactory;
 import com.logproc.metrics.MetricsCollector;
 import com.logproc.model.LogEntry;
 import com.logproc.strategy.LogParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -11,6 +13,8 @@ import java.util.concurrent.BlockingQueue;
 
 @Service
 public class LogWorkerService {
+
+    private static final Logger logger = LoggerFactory.getLogger(LogWorkerService.class);
 
     private final ParserFactory parserFactory;
     private final BlockingQueue<LogEntry> outputQueue;
@@ -46,8 +50,7 @@ public class LogWorkerService {
 
             metrics.incrementProcessed();
         } catch (Exception e) {
-            System.err.println("WORKER FAILED: " + e.getMessage());
-            e.printStackTrace(); // Added for better debugging
+            logger.error("WORKER FAILED: {}", e.getMessage(), e);
             metrics.incrementError();
         }
     }

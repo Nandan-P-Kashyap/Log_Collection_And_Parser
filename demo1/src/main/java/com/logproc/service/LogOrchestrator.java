@@ -1,5 +1,7 @@
 package com.logproc.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import java.io.File;
@@ -9,6 +11,8 @@ import java.util.concurrent.Executor;
 
 @Component
 public class LogOrchestrator implements CommandLineRunner {
+
+    private static final Logger logger = LoggerFactory.getLogger(LogOrchestrator.class);
 
     private final LogReaderService readerService;
     private final LogWorkerService workerService;
@@ -30,11 +34,11 @@ public class LogOrchestrator implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        System.out.println("🚀 STARTING VORTEX ENGINE (MANAGED MODE)...");
+        logger.info("STARTING VORTEX ENGINE (MANAGED MODE)...");
 
         File f = new File("logs.jsonl");
         if (!f.exists()) {
-            System.err.println("ERROR: logs.jsonl not found. Exiting orchestrator run().");
+            logger.error("ERROR: logs.jsonl not found. Exiting orchestrator run().");
             return;
         }
 
@@ -44,31 +48,32 @@ public class LogOrchestrator implements CommandLineRunner {
 
         // Submit the Writer using the Spring-managed orchestratorExecutor
         orchestratorExecutor.execute(() -> {
-            try {
-                writerService.startWriting();
-            } finally {
-                writerLatch.countDown();
-            }
+                try {
+                    writerService.startWriting();
+                } finally {
+                    writerLatch.countDown();
+                }
         });
 
         // Submit the Consumer (The Bridge)
         orchestratorExecutor.execute(() -> {
-            try {
-                System.out.println("⚙️ WORKER DISTRIBUTION STARTED...");
-                while (true) {
-                    com.logproc.model.InputMessage msg = inputQueue.take(); // Blocks until data is available
+                try {
+                    logger.info("WORKER DISTRIBUTION STARTED...");
+                    while (true) {
+                        com.logproc.model.InputMessage msg = inputQueue.take(); // Blocks until data is available
 
-                    try {
-                        workerService.processLine(msg);
-                    } catch (Exception e) {
-                        System.err.println("WORKER ERROR: " + e.getMessage());
+                        try {
+                            workerService.processLine(msg);
+                        } catch (Exception e) {
+                            logger.error("WORKER ERROR: {}", e.getMessage(), e);
+                        }
+
+                        if (msg.isPoison()) break;
                     }
-
-                    if (msg.isPoison()) break;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.warn("Orchestrator bridge interrupted");
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
         });
 
         // Submit the Reader
@@ -77,7 +82,7 @@ public class LogOrchestrator implements CommandLineRunner {
         // 4. Graceful Wait
         writerLatch.await();
 
-        System.out.println("🏁 ENGINE SHUTDOWN COMPLETE.");
+        logger.info("ENGINE SHUTDOWN COMPLETE.");
 
         // Normal return to allow Spring to manage application lifecycle and threads
     }

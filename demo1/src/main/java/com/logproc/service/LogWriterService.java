@@ -1,7 +1,10 @@
 package com.logproc.service;
 
 import com.logproc.model.LogEntry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
@@ -12,6 +15,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class LogWriterService {
+
+    private static final Logger logger = LoggerFactory.getLogger(LogWriterService.class);
 
     private final BlockingQueue<LogEntry> outputQueue;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -27,7 +32,7 @@ public class LogWriterService {
 
         // 1. LOCK THE FILE PATH
         File outputFile = new File("processed_logs.txt");
-        System.out.println("💾 WRITER STARTED. Saving to ABSOLUTE PATH: " + outputFile.getAbsolutePath());
+        logger.info("WRITER STARTED. Saving to path: {}", outputFile.getAbsolutePath());
 
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile, false))) {
             List<LogEntry> buffer = new ArrayList<>(500);
@@ -36,12 +41,12 @@ public class LogWriterService {
                 LogEntry first = outputQueue.take();
 
                 if (first == LogEntry.POISON_PILL) {
-                    System.out.println("📝 WRITER RECEIVED POISON_PILL. Flushing buffer...");
+                    logger.info("WRITER RECEIVED POISON_PILL. Flushing buffer...");
                     for (LogEntry entry : buffer) {
                         writer.write(formatLog(entry));
                     }
                     writer.flush();
-                    System.out.println("✅ WRITER FINISHED.");
+                    logger.info("WRITER FINISHED.");
                     break;
                 }
 
@@ -55,16 +60,16 @@ public class LogWriterService {
                 buffer.clear();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Writer failed: {}", e.getMessage(), e);
         }
 
         // 2. PROOF OF LIFE CHECK (Run this AFTER file is closed)
         if (outputFile.exists()) {
-            System.out.println("🔎 VERIFICATION: File exists at " + outputFile.getAbsolutePath());
-            System.out.println("📏 FINAL SIZE: " + outputFile.length() + " bytes (Should be > 0)");
-            System.out.println("📄 LINE COUNT CHECK: " + (outputFile.length() > 0 ? "SUCCESS" : "FAILURE"));
+            logger.info("VERIFICATION: File exists at {}", outputFile.getAbsolutePath());
+            logger.info("FINAL SIZE: {} bytes", outputFile.length());
+            logger.info("LINE COUNT CHECK: {}", outputFile.length() > 0 ? "SUCCESS" : "FAILURE");
         } else {
-            System.err.println("❌ ERROR: File was NOT created!");
+            logger.error("ERROR: File was NOT created!");
         }
     }
 
