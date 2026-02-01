@@ -25,20 +25,20 @@ public class LogWorkerService {
     }
 
     @Async("workerExecutor")
-    public void processLine(String rawLine) {
+    public void processLine(com.logproc.model.InputMessage message) {
         try {
-            // 1. Check for EOF before parsing
-            if (rawLine.equals(LogReaderService.EOF)) {
+            // 1. Check for POISON before parsing
+            if (message.isPoison()) {
                 // Place the shared POISON_PILL onto the output queue to signal writer shutdown
                 outputQueue.put(LogEntry.POISON_PILL);
                 return;
             }
 
+            String rawLine = message.getLine();
+
             // 2. Normal processing: Get the specific Parser Strategy
             LogParser parser = parserFactory.getParser(rawLine);
 
-            // 🛑 THE FIX: Capture the current thread name and pass it as the 2nd argument
-            // This ensures k is an index at the modified string/object properly
             String currentThreadName = Thread.currentThread().getName();
             LogEntry entry = parser.parse(rawLine, currentThreadName);
 

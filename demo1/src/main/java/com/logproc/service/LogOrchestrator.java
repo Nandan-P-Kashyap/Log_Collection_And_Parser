@@ -13,13 +13,13 @@ public class LogOrchestrator implements CommandLineRunner {
     private final LogReaderService readerService;
     private final LogWorkerService workerService;
     private final LogWriterService writerService;
-    private final BlockingQueue<String> inputQueue;
+    private final BlockingQueue<com.logproc.model.InputMessage> inputQueue;
     private final Executor orchestratorExecutor;
 
     public LogOrchestrator(LogReaderService readerService,
                            LogWorkerService workerService,
                            LogWriterService writerService,
-                           BlockingQueue<String> inputQueue,
+                           BlockingQueue<com.logproc.model.InputMessage> inputQueue,
                            Executor orchestratorExecutor) {
         this.readerService = readerService;
         this.workerService = workerService;
@@ -56,15 +56,15 @@ public class LogOrchestrator implements CommandLineRunner {
             try {
                 System.out.println("⚙️ WORKER DISTRIBUTION STARTED...");
                 while (true) {
-                    String line = inputQueue.take(); // Blocks until data is available
+                    com.logproc.model.InputMessage msg = inputQueue.take(); // Blocks until data is available
 
                     try {
-                        workerService.processLine(line);
+                        workerService.processLine(msg);
                     } catch (Exception e) {
                         System.err.println("WORKER ERROR: " + e.getMessage());
                     }
 
-                    if (LogReaderService.EOF.equals(line)) break;
+                    if (msg.isPoison()) break;
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

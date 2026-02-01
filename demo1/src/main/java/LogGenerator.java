@@ -5,7 +5,7 @@ import java.io.IOException;
 public class LogGenerator {
     public static void main(String[] args) throws IOException {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("logs.jsonl"))) {
-            for (int i = 1; i <= 30000; i++) {
+            for (int i = 1; i <= 10000; i++) {
                 String level = (i % 3 == 0) ? "ERROR" : "INFO";
 
                 // We want the file to look like: "msg":"Text with \"quoted\" part"

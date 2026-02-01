@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.BlockingQueue;
+import com.logproc.model.InputMessage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -17,8 +18,8 @@ public class AppConfig {
 
     // The "Input Belt": Raw JSON strings from the Reader
     @Bean
-    public BlockingQueue<String> inputQueue() {
-        return new LinkedBlockingQueue<>(2000); // Buffer size of 2000 lines
+    public BlockingQueue<InputMessage> inputQueue() {
+        return new LinkedBlockingQueue<>(2000); // Buffer size of 2000 messages
     }
 
     // The "Output Belt": Processed LogEntry objects for the Writer

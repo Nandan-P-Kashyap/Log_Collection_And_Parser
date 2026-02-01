@@ -1,5 +1,6 @@
 package com.logproc.service;
 
+import com.logproc.model.InputMessage;
 import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -8,10 +9,9 @@ import java.util.concurrent.BlockingQueue;
 @Service
 public class LogReaderService {
 
-    private final BlockingQueue<String> inputQueue;
-    public static final String EOF = "EOF_SIGNAL";
+    private final BlockingQueue<InputMessage> inputQueue;
 
-    public LogReaderService(BlockingQueue<String> inputQueue) {
+    public LogReaderService(BlockingQueue<InputMessage> inputQueue) {
         this.inputQueue = inputQueue;
     }
 
@@ -41,10 +41,8 @@ public class LogReaderService {
                 if (balance == 0 && logBuffer.length() > 0) {
                     String line = logBuffer.toString().trim();
 
-                    // 🚀 INDUSTRY FIX: No more while-sleep loops.
-                    // .put() will BLOCK this thread automatically if the queue is full.
-                    // This is 100% efficient backpressure.
-                    inputQueue.put(line);
+                    // Block on put for natural backpressure
+                    inputQueue.put(InputMessage.of(line));
 
                     count++;
                     if (count % 500 == 0) {
@@ -53,8 +51,8 @@ public class LogReaderService {
                     logBuffer.setLength(0);
                 }
             }
-            // Signal EOF
-            inputQueue.put(EOF);
+            // Signal POISON
+            inputQueue.put(InputMessage.POISON_PILL);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); // Proper handling for interrupted threads
         } catch (Exception e) {
