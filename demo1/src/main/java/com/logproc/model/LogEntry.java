@@ -17,17 +17,33 @@ public class LogEntry {
         this.source = builder.source;
         this.message = builder.message;
         this.processedBy = builder.processedBy;
-        this.metadata = builder.metadata != null ?
-                Collections.unmodifiableMap(builder.metadata) : null;
+        this.metadata = builder.metadata != null ? Collections.unmodifiableMap(builder.metadata) : null;
     }
 
-
     // Getters
-    public String getTimestamp() { return timestamp; }
-    public String getLevel() { return level; }
-    public String getSource() { return source; }
-    public String getMessage() { return message; }
-    public String getProcessedBy() { return processedBy; }
+    public String getTimestamp() {
+        return timestamp;
+    }
+
+    public String getLevel() {
+        return level;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public String getProcessedBy() {
+        return processedBy;
+    }
+
+    public Map<String, String> getMetadata() {
+        return metadata;
+    }
 
     public static class Builder {
         private String timestamp;
@@ -42,16 +58,39 @@ public class LogEntry {
             return this;
         }
 
-        public Builder timestamp(String ts) { this.timestamp = ts; return this; }
-        public Builder level(String lvl) { this.level = lvl; return this; }
-        public Builder source(String src) { this.source = src; return this; }
-        public Builder message(String msg) { this.message = msg; return this; }
-        public Builder metadata(Map<String, String> meta) { this.metadata = meta; return this; }
+        public Builder timestamp(String ts) {
+            this.timestamp = ts;
+            return this;
+        }
 
-        public LogEntry build() { return new LogEntry(this); }
+        public Builder level(String lvl) {
+            this.level = lvl;
+            return this;
+        }
+
+        public Builder source(String src) {
+            this.source = src;
+            return this;
+        }
+
+        public Builder message(String msg) {
+            this.message = msg;
+            return this;
+        }
+
+        public Builder metadata(Map<String, String> meta) {
+            this.metadata = meta;
+            return this;
+        }
+
+        public LogEntry build() {
+            return new LogEntry(this);
+        }
     }
 
-    public static Builder builder() { return new Builder(); }
+    public static Builder builder() {
+        return new Builder();
+    }
 
     // A shared POISON_PILL instance used to signal shutdown between components
     public static final LogEntry POISON_PILL = new Builder()

@@ -1,17 +1,17 @@
 package com.logproc.service;
 
+import com.logproc.model.LogDocument;
 import com.logproc.model.LogEntry;
+import com.logproc.repository.LogElasticsearchRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 @Service
 public class LogWriterService {
@@ -19,10 +19,12 @@ public class LogWriterService {
     private static final Logger logger = LoggerFactory.getLogger(LogWriterService.class);
 
     private final BlockingQueue<LogEntry> outputQueue;
+    private final LogElasticsearchRepository repository;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
-    public LogWriterService(BlockingQueue<LogEntry> outputQueue) {
+    public LogWriterService(BlockingQueue<LogEntry> outputQueue, LogElasticsearchRepository repository) {
         this.outputQueue = outputQueue;
+        this.repository = repository;
     }
 
     public void startWriting() {
@@ -30,22 +32,17 @@ public class LogWriterService {
             return;
         }
 
-        // 1. LOCK THE FILE PATH
-        File outputFile = new File("processed_logs.txt");
-        logger.info("WRITER STARTED. Saving to path: {}", outputFile.getAbsolutePath());
+        logger.info("ELASTICSEARCH WRITER STARTED. Indexing logs to 'logs' index...");
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile, false))) {
-            List<LogEntry> buffer = new ArrayList<>(500);
+        List<LogEntry> buffer = new ArrayList<>(500);
 
+        try {
             while (true) {
                 LogEntry first = outputQueue.take();
 
                 if (first == LogEntry.POISON_PILL) {
-                    logger.info("WRITER RECEIVED POISON_PILL. Flushing buffer...");
-                    for (LogEntry entry : buffer) {
-                        writer.write(formatLog(entry));
-                    }
-                    writer.flush();
+                    logger.info("WRITER RECEIVED POISON_PILL. Flushing remaining buffer...");
+                    flushToElasticsearch(buffer);
                     logger.info("WRITER FINISHED.");
                     break;
                 }
@@ -53,31 +50,32 @@ public class LogWriterService {
                 buffer.add(first);
                 outputQueue.drainTo(buffer, 499);
 
-                for (LogEntry entry : buffer) {
-                    writer.write(formatLog(entry));
-                }
-                writer.flush();
+                flushToElasticsearch(buffer);
                 buffer.clear();
             }
         } catch (Exception e) {
             logger.error("Writer failed: {}", e.getMessage(), e);
         }
-
-        // 2. PROOF OF LIFE CHECK (Run this AFTER file is closed)
-        if (outputFile.exists()) {
-            logger.info("VERIFICATION: File exists at {}", outputFile.getAbsolutePath());
-            logger.info("FINAL SIZE: {} bytes", outputFile.length());
-            logger.info("LINE COUNT CHECK: {}", outputFile.length() > 0 ? "SUCCESS" : "FAILURE");
-        } else {
-            logger.error("ERROR: File was NOT created!");
-        }
     }
 
-    private String formatLog(LogEntry entry) {
-        return String.format("[%s] [Thread: %s] %s: %s%n",
-                entry.getTimestamp(),
-                entry.getProcessedBy() != null ? entry.getProcessedBy() : "Unknown",
-                entry.getLevel(),
-                entry.getMessage());
+    private void flushToElasticsearch(List<LogEntry> buffer) {
+        if (buffer.isEmpty())
+            return;
+
+        try {
+            // Filter out any accidental POISON_PILLs that might have been drained
+            List<LogDocument> docs = buffer.stream()
+                    .filter(e -> e != LogEntry.POISON_PILL)
+                    .map(LogDocument::new)
+                    .collect(Collectors.toList());
+
+            if (docs.isEmpty())
+                return;
+
+            repository.saveAll(docs);
+            logger.info("Indexed batch of {} logs", docs.size());
+        } catch (Exception e) {
+            logger.error("FAILED TO INDEX BATCH: {}", e.getMessage());
+        }
     }
 }

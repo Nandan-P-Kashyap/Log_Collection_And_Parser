@@ -1,11 +1,20 @@
 package com.logproc.strategy.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.logproc.model.LogEntry;
 import com.logproc.strategy.LogParser;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
 @Component
 public class JsonParser implements LogParser {
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
     public boolean canHandle(String rawLine) {
@@ -15,37 +24,68 @@ public class JsonParser implements LogParser {
     @Override
     public LogEntry parse(String rawLine, String threadName) {
         LogEntry.Builder builder = LogEntry.builder();
+        Map<String, String> metadata = new HashMap<>();
 
-        // Use the helper to extract each field accurately
-        builder.level(extractValue(rawLine, "\"level\":\""));
-        builder.message(extractValue(rawLine, "\"msg\":\""));
-        builder.timestamp(extractValue(rawLine, "\"timestamp\":\""));
+        try {
+            JsonNode root = mapper.readTree(rawLine);
 
-        // 🛑 NEW: Set the thread name here
+            // 1. Extract Standard Fields
+            if (root.has("level"))
+                builder.level(root.get("level").asText());
+            if (root.has("timestamp"))
+                builder.timestamp(root.get("timestamp").asText());
+            if (root.has("msg"))
+                builder.message(root.get("msg").asText());
+            else if (root.has("message"))
+                builder.message(root.get("message").asText());
+
+            // 2. Process all fields for Metadata & Nested JSON
+            flattenJson(root, "", metadata);
+
+        } catch (Exception e) {
+            // Fallback for malformed JSON
+            builder.message("FAILED_TO_PARSE: " + rawLine);
+            builder.level("ERROR");
+        }
+
         builder.processedBy(threadName);
-
+        builder.metadata(metadata);
         return builder.build();
     }
 
-    private String extractValue(String raw, String key) {
-        int k = raw.indexOf(key);
-        if (k == -1) return null;
+    private void flattenJson(JsonNode node, String prefix, Map<String, String> map) {
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                String key = entry.getKey();
+                JsonNode value = entry.getValue();
+                String newKey = prefix.isEmpty() ? key : prefix + "." + key;
 
-        int startValue = k + key.length();
-        int endValue = startValue;
-
-        // Loop through the string to find the closing quote
-        while (endValue < raw.length()) {
-            endValue = raw.indexOf("\"", endValue);
-
-            if (endValue == -1) break;
-
-            // Check if the quote is escaped: \"
-            if (endValue > 0 && raw.charAt(endValue - 1) != '\\') {
-                return raw.substring(startValue, endValue);
+                if (value.isObject()) {
+                    flattenJson(value, newKey, map);
+                } else if (value.isTextual()) {
+                    String text = value.asText();
+                    // Check if the string itself is a nested JSON object
+                    if (text.trim().startsWith("{") && text.trim().endsWith("}")) {
+                        try {
+                            JsonNode nested = mapper.readTree(text);
+                            flattenJson(nested, newKey, map);
+                        } catch (Exception e) {
+                            // Not valid JSON, treat as regular string
+                            map.put(newKey, text);
+                        }
+                    } else {
+                        map.put(newKey, text);
+                    }
+                } else {
+                    // Numbers, Booleans, etc.
+                    map.put(newKey, value.asText());
+                }
             }
-            endValue++;
+        } else if (node.isArray()) {
+            // For arrays, just store the string representation for now
+            map.put(prefix, node.toString());
         }
-        return null;
     }
 }
